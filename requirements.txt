@@ -1,0 +1,8 @@
+# Runtime dependencies. Versions will be pinned once the integrations are built (day 2).
+fastapi
+uvicorn
+twilio
+supabase
+anthropic
+httpx
+python-dotenv

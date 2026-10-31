@@ -1,0 +1,1 @@
+"""SuNoogo application package."""
