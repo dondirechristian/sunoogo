@@ -46,3 +46,24 @@ def session_row(
 
 def save_session(row: dict) -> None:
     _client().table("sessions").upsert(row).execute()
+
+
+def insert_alert(row: dict) -> None:
+    _client().table("alerts").insert(row).execute()
+
+
+def fetch_public_stats() -> list[dict]:
+    """Weekly aggregated counters (no individual data), oldest week first."""
+    return _client().table("public_stats").select("*").order("week_start").execute().data
+
+
+def fetch_due_followups(today: date) -> list[dict]:
+    return (
+        _client()
+        .table("sessions")
+        .select("woman_code, chw_phone, followup_due, completed_at")
+        .lte("followup_due", today.isoformat())
+        .order("followup_due")
+        .execute()
+        .data
+    )

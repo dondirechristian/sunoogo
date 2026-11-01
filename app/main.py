@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from twilio.request_validator import RequestValidator
 
-from app import db, messages, twilio_client
+from app import alerts, db, messages, summary, twilio_client
 from app.flow import Effect, Session, State, followup_due_date, handle_message
 
 load_dotenv()
@@ -44,6 +44,13 @@ class Conversation:
     session_id: str
 
 
+@dataclass(frozen=True)
+class Outcome:
+    outgoing: list[messages.Outgoing]
+    alert: Conversation | None = None  # red result: nurse must be alerted
+    completed: Session | None = None  # finished session: send the case summary
+
+
 _conversations: dict[str, Conversation] = {}
 _lock = threading.Lock()
 
@@ -59,13 +66,30 @@ async def whatsapp_webhook(request: Request, background: BackgroundTasks) -> Res
     if not _signature_is_valid(request, form):
         raise HTTPException(status_code=403, detail="Invalid Twilio signature")
     sender = form.get("From", "")
-    outgoing = await run_in_threadpool(process_message, sender, form.get("Body", ""))
-    # Replies are sent through the REST API after the webhook has answered Twilio.
-    background.add_task(twilio_client.send_all, sender, outgoing)
+    outcome = await run_in_threadpool(process_message, sender, form.get("Body", ""))
+    # Sent through the REST API after the webhook has answered Twilio, in this order.
+    # Each task catches its own errors, so one failure never cancels the next ones.
+    if outcome.alert:
+        background.add_task(
+            alerts.send_alert, outcome.alert.session_id, _phone(sender), outcome.alert.session
+        )
+    background.add_task(twilio_client.send_all, sender, outcome.outgoing)
+    if outcome.completed:
+        background.add_task(send_summary, sender, outcome.completed)
     return Response(EMPTY_TWIML, media_type="application/xml")
 
 
-def process_message(sender: str, text: str) -> list[messages.Outgoing]:
+def send_summary(sender: str, session: Session) -> None:
+    try:
+        text = summary.summarize(session)
+    except Exception:
+        log.exception("Case summary failed")
+        return
+    if text:
+        twilio_client.send_all(sender, [messages.Outgoing(text)])
+
+
+def process_message(sender: str, text: str) -> Outcome:
     with _lock:
         conversation = _conversations.get(sender)
         transition = handle_message(conversation.session if conversation else None, text)
@@ -76,29 +100,28 @@ def process_message(sender: str, text: str) -> list[messages.Outgoing]:
             _conversations[sender] = Conversation(session, session_id)
         else:
             _conversations.pop(sender, None)
-        if session is not None:
-            _apply_effects(transition.effects, session_id, sender, session)
+        if session is not None and Effect.SAVE_SESSION in transition.effects:
+            _save(transition.effects, session_id, sender, session)
 
     woman_code = session.woman_code if session else ""
-    return [
+    outgoing = [
         messages.build(key, _public_base_url(), lang=_lang(), woman_code=woman_code)
         for key in transition.replies
     ]
+    completed = session if session is not None and session.state is State.COMPLETED else None
+    alert = Conversation(session, session_id) if Effect.SEND_ALERT in transition.effects else None
+    return Outcome(outgoing, alert=alert, completed=completed)
 
 
-def _apply_effects(effects: tuple[Effect, ...], session_id: str, sender: str, session: Session):
+def _save(effects: tuple[Effect, ...], session_id: str, sender: str, session: Session) -> None:
     now = datetime.now(timezone.utc)
-    if Effect.SAVE_SESSION in effects:
-        completed_at = now if session.state is State.COMPLETED else None
-        followup = followup_due_date(now.date()) if Effect.SCHEDULE_FOLLOWUP in effects else None
-        row = db.session_row(session_id, _phone(sender), session, completed_at, followup)
-        try:
-            db.save_session(row)
-        except Exception:
-            log.exception("Failed to save session %s", session_id)
-    if Effect.SEND_ALERT in effects:
-        # TODO(day 3): WhatsApp alert to the referral nurse (app/alerts.py).
-        log.warning("RED result for session %s: nurse alert not implemented yet", session_id)
+    completed_at = now if session.state is State.COMPLETED else None
+    followup = followup_due_date(now.date()) if Effect.SCHEDULE_FOLLOWUP in effects else None
+    row = db.session_row(session_id, _phone(sender), session, completed_at, followup)
+    try:
+        db.save_session(row)
+    except Exception:
+        log.exception("Failed to save session %s", session_id)
 
 
 def _signature_is_valid(request: Request, form: dict) -> bool:
