@@ -164,6 +164,38 @@ def test_database_failure_does_not_block_the_conversation(client, env, monkeypat
     assert texts(sent)[-1].startswith("Question 1/6")
 
 
+def test_stats_api_returns_totals_and_weeks(client, monkeypatch):
+    weeks = [
+        {"iso_week": "2026-W44", "week_start": "2026-10-26", "sessions_started": 3,
+         "sessions_completed": 2, "level_green": 1, "level_orange": 0, "level_red": 1,
+         "alerts_sent": 1},
+        {"iso_week": "2026-W45", "week_start": "2026-11-02", "sessions_started": 4,
+         "sessions_completed": 4, "level_green": 2, "level_orange": 1, "level_red": 1,
+         "alerts_sent": 1},
+    ]  # fmt: skip
+    monkeypatch.setattr(main.db, "fetch_public_stats", lambda: weeks)
+    body = client.get("/api/stats").json()
+    assert body["weeks"] == weeks
+    assert body["totals"] == {
+        "sessions_started": 7, "sessions_completed": 6, "level_green": 3,
+        "level_orange": 1, "level_red": 2, "alerts_sent": 2,
+    }  # fmt: skip
+
+
+def test_stats_api_reports_database_failure(client, monkeypatch):
+    def db_down():
+        raise RuntimeError("supabase down")
+
+    monkeypatch.setattr(main.db, "fetch_public_stats", db_down)
+    assert client.get("/api/stats").status_code == 503
+
+
+def test_dashboard_page_is_served(client):
+    response = client.get("/dashboard")
+    assert response.status_code == 200
+    assert "api/stats" in response.text
+
+
 def test_audio_files_are_served_with_audio_content_type(client):
     audio_dir = main.STATIC_DIR / "audio" / "mos"
     probe = audio_dir / "_test_probe.ogg"

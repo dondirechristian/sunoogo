@@ -1,4 +1,4 @@
-"""FastAPI app: POST /whatsapp Twilio webhook and /static files (Mooré audio).
+"""FastAPI app: POST /whatsapp Twilio webhook, public /dashboard and /static files (Mooré audio).
 
 Conversation state lives in memory, keyed by the CHW's WhatsApp number, and is persisted to
 Supabase only after consent (via flow effects). A server restart drops conversations that are
@@ -16,6 +16,7 @@ from uuid import uuid4
 
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Response
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from twilio.request_validator import RequestValidator
@@ -55,9 +56,39 @@ _conversations: dict[str, Conversation] = {}
 _lock = threading.Lock()
 
 
+STAT_FIELDS = (
+    "sessions_started",
+    "sessions_completed",
+    "level_green",
+    "level_orange",
+    "level_red",
+    "alerts_sent",
+)
+
+
 @app.get("/")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/dashboard")
+def dashboard() -> FileResponse:
+    return FileResponse(STATIC_DIR / "dashboard.html")
+
+
+@app.get("/api/stats")
+def stats() -> dict:
+    """Public anonymised counters, read from the aggregated public_stats view only."""
+    try:
+        weeks = db.fetch_public_stats()
+    except Exception:
+        log.exception("Failed to read public_stats")
+        raise HTTPException(status_code=503, detail="Statistics temporarily unavailable")
+    return {"totals": aggregate(weeks), "weeks": weeks}
+
+
+def aggregate(weeks: list[dict]) -> dict:
+    return {field: sum(int(week.get(field) or 0) for week in weeks) for field in STAT_FIELDS}
 
 
 @app.post("/whatsapp")
