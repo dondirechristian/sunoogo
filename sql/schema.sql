@@ -69,5 +69,7 @@ left join (
 ) a on a.session_id = s.id
 group by 1, 2;
 
-revoke all on sessions, alerts from anon, authenticated;
-grant select on public_stats to anon, authenticated;
+-- Explicit grants: do not rely on Supabase's "automatically expose new tables" setting.
+revoke all on sessions, alerts, public_stats from anon, authenticated;
+grant select, insert, update, delete on sessions, alerts to service_role;
+grant select on public_stats to anon, authenticated, service_role;
