@@ -41,7 +41,8 @@ TEXTS = {
         "q3": f"Question 3/6. {_PERIOD_FR} agitée, incapable de tenir en place ? (1 à 5)",
         "q4": f"Question 4/6. {_PERIOD_FR} si déprimée que rien ne pouvait vous remonter "
         "le moral ? (1 à 5)",
-        "q5": f"Question 5/6. {_PERIOD_FR} que tout était un effort ? (1 à 5)",
+        "q5": "Question 5/6. Ces 30 derniers jours, à quelle fréquence avez-vous eu "
+        "l'impression que tout était un effort ? (1 à 5)",
         "q6": f"Question 6/6. {_PERIOD_FR} sans valeur ? (1 à 5)",
         "safety": "Dernière question. Ces 30 derniers jours, avez-vous pensé à vous faire "
         "du mal ? Répondez 1 = non, 2 = oui.",
