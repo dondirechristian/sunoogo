@@ -1,58 +1,188 @@
 # SũNoogo
 
-WhatsApp voice assistant in Mooré that helps community health workers (CHWs) screen for perinatal
-psychological distress using the K6 scale, alerts the referral nurse for high-risk cases, and sends
-anonymised indicators to DHIS2.
+**A WhatsApp voice assistant in Mooré that helps community health workers screen pregnant and
+postpartum women for psychological distress, alerts the referral nurse when a woman needs help,
+and reports anonymised indicators to DHIS2.**
 
-> Status: prototype under construction.
+Community health workers (CHWs) already use WhatsApp on basic smartphones. SuNoogo turns it
+into a guided screening tool: each question of the K6 questionnaire arrives as a Mooré voice
+note with a short French text, the CHW types the woman's answer as a digit, and a fixed,
+tested rule computes the result. High-risk results reach the nurse immediately.
 
-## Key principles
+> Status: working prototype (UNICEF Femtech Ventures application, November 2026).
+> Not yet validated for field use — see [docs/SAFETY.md](docs/SAFETY.md).
 
-- The score is computed by a fixed, unit-tested Python rule (`app/scoring.py`), never by an LLM.
-- Messages never state a diagnosis; they report a "questionnaire result".
-- No woman's name is stored. Each woman is identified by a code (e.g. `F-0042`) entered by the CHW.
-- A positive safety question always yields the red level and an immediate alert.
+## How a session works
 
-## Development
+```
+CHW  > START F-0042                      woman identified by a code, never by name
+BOT  > [audio] welcome + consent         Mooré voice note + short French text
+CHW  > 1                                 1 = she agrees, 2 = she refuses (nothing stored)
+BOT  > [audio] answer choices, question 1 of 6
+CHW  > 1..5                              never / rarely / sometimes / most of the time / always
+       ... six K6 questions ...
+BOT  > [audio] safety question           thoughts of self-harm in the last 30 days?
+CHW  > 1 or 2
+NURSE< alert (red only, sent first)
+BOT  > [audio] result: green / orange / red + what to do
+BOT  > short case summary (LLM, from structured data only)
+```
+
+`STOP` ends a session at any time. An invalid answer replays the explanation of the choices and
+repeats the question, without moving on.
+
+| Level | Rule (provisional thresholds) | Action |
+|---|---|---|
+| Green | score 0–7, safety question negative | Routine follow-up |
+| Orange | score 8–12, safety question negative | Follow-up questionnaire in 14 days |
+| Red | score ≥ 13 **or** safety question positive | Immediate WhatsApp alert to the referral nurse, referral to the health centre |
+
+### Example transcript
+
+Produced by `python scripts/demo_session.py --scenario red-safety --no-db` with
+`SUNOOGO_LANG=en` (French is the default; the nurse alert is always in French):
+
+```
+CHW   > START F-0042
+BOT   > Well-being questionnaire for F-0042.
+BOT   > Ask the woman whether she agrees to answer a few questions about how she feels.
+        Her name is not recorded. Reply 1 if she agrees, 2 if she refuses.
+CHW   > 1
+BOT   > Answer each question with a digit: 1 = never, 2 = rarely, 3 = sometimes,
+        4 = most of the time, 5 = all of the time.
+BOT   > Question 1/6. In the last 30 days, how often did you feel nervous? (1 to 5)
+CHW   > 2
+  ...
+BOT   > Last question. In the last 30 days, have you thought about harming yourself?
+        Reply 1 = no, 2 = yes.
+CHW   > 2
+NURSE > ALERTE SuNoogo : résultat ROUGE au questionnaire pour F-0042. Score 3/24.
+        Question de sécurité : OUI. Agent de santé : +22600000000. Merci de contacter
+        l'agent dès aujourd'hui.
+BOT   > Questionnaire result: RED. The referral nurse is being alerted. Refer the woman
+        to the health centre as soon as possible.
+BOT   > Thank you. Send START followed by a code for a new questionnaire.
+```
+
+A low score with a positive safety question is still red: the safety rule overrides the score.
+
+### Public dashboard
+
+Weekly anonymised totals at `/dashboard`, read only from an aggregated database view:
+
+![SuNoogo public dashboard](docs/img/dashboard.png)
+
+## Safety and privacy by design
+
+- **The score is never computed by an LLM.** It is a fixed rule in
+  [app/scoring.py](app/scoring.py), unit-tested on every possible score and threshold.
+- **Positive safety question = red**, whatever the score, with an immediate nurse alert sent
+  before the CHW gets the result.
+- **No diagnosis in any message**: only "questionnaire result" (checked by tests).
+- **No woman's name is stored.** Each woman is a code (`F-0042`); the database rejects anything
+  else. Only the CHW's number is stored.
+- **Nothing is stored before consent.** A refusal leaves no trace.
+- **The LLM** (Claude) only writes a short summary for the CHW from the structured result; it
+  receives no code, no phone number and no free text, and its output is filtered.
+- **Public data is aggregated**: database tables are closed by row-level security; only a
+  weekly counts view is public.
+
+The full protocol, failure modes and known limitations are in [docs/SAFETY.md](docs/SAFETY.md).
+
+## Architecture
+
+```
+WhatsApp (CHW phone)
+   │  Twilio WhatsApp
+   ▼
+FastAPI  POST /whatsapp ── signature check ──► flow.py (pure state machine)
+   │                                             └─► scoring.py (fixed K6 rule)
+   ├─► Supabase (Postgres): sessions, alerts, public_stats view
+   ├─► alerts.py ──► WhatsApp alert to the referral nurse (red)
+   ├─► summary.py ─► Claude API: short French summary (structured input only)
+   ├─► GET /dashboard, /api/stats ─► anonymised weekly totals
+   └─► dhis2.py ──► DHIS2 dataValueSets (weekly push)
+```
+
+| Path | Role |
+|---|---|
+| `app/flow.py` | Session state machine — pure, no I/O, fully tested |
+| `app/scoring.py` | K6 score, levels and safety rule — pure, fully tested |
+| `app/messages.py` | French/English texts and Mooré audio file names |
+| `app/main.py` | Webhook, dashboard, static audio |
+| `app/twilio_client.py` | Sends text and audio (audio and text are separate WhatsApp messages) |
+| `app/db.py` | Supabase access |
+| `app/alerts.py` | Nurse alert |
+| `app/summary.py` | LLM case summary with output checks |
+| `app/dhis2.py` | Weekly aggregation and DHIS2 push |
+| `app/followups.py` | Lists due 14-day follow-ups |
+| `sql/schema.sql` | Tables, constraints, row-level security, `public_stats` view |
+| `scripts/demo_session.py` | Replays a full session without a phone |
+
+Stack: Python 3.11+, FastAPI, Twilio WhatsApp, Supabase (Postgres), Anthropic API, DHIS2 Web API,
+pytest.
+
+## Try it without a phone
 
 ```bash
 python -m venv .venv
-.venv/Scripts/python -m pip install -r requirements-dev.txt   # Windows
-.venv/Scripts/python -m pytest
+.venv/Scripts/python -m pip install -r requirements.txt -r requirements-dev.txt   # Windows
+.venv/Scripts/python -m pytest                                                     # 240 tests
+.venv/Scripts/python scripts/demo_session.py --scenario red-safety --no-db
 ```
 
-Copy `.env.example` to `.env` and fill in the secrets. Never commit `.env`.
+Scenarios: `green`, `orange`, `red`, `red-safety`. Without `--no-db`, sessions are written to
+the Supabase project configured in `.env`.
 
-## Running the WhatsApp prototype locally
+## Run the WhatsApp prototype
 
-1. Create the tables: paste `sql/schema.sql` into the Supabase SQL editor and run it.
-2. Install dependencies: `.venv/Scripts/python -m pip install -r requirements.txt`.
-3. Start the server: `.venv/Scripts/python -m uvicorn app.main:app --port 8000`.
-4. Expose it: `ngrok http 8000`, then set `PUBLIC_BASE_URL` in `.env` to the ngrok HTTPS URL
-   and restart the server (Twilio signatures are checked against this URL).
-5. In the Twilio console (Messaging > Try it out > WhatsApp sandbox), set
+1. **Database:** create a Supabase project, paste `sql/schema.sql` into the SQL editor and run it.
+2. **Configuration:** copy `.env.example` to `.env` and fill it in (never commit `.env`):
+
+   | Variable | Purpose |
+   |---|---|
+   | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` | Twilio account |
+   | `TWILIO_WHATSAPP_FROM` | Sandbox sender, `whatsapp:+14155238886` |
+   | `PUBLIC_BASE_URL` | Public HTTPS URL of the server (ngrok in development) |
+   | `NURSE_WHATSAPP_TO` | Referral nurse, `whatsapp:+226…` |
+   | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Database (server-side key) |
+   | `ANTHROPIC_API_KEY` | Case summary (optional) |
+   | `DHIS2_BASE_URL`, `DHIS2_USERNAME`, `DHIS2_PASSWORD`, `DHIS2_ORG_UNIT` | DHIS2 instance |
+   | `SUNOOGO_LANG` | `fr` (default) or `en` |
+
+3. **Server:** `.venv/Scripts/python -m uvicorn app.main:app --port 8000`
+4. **Tunnel:** `ngrok http 8000`, then put the HTTPS URL in `PUBLIC_BASE_URL` and restart the
+   server (Twilio signatures are checked against this URL).
+5. **Twilio sandbox** (legacy console, `twilio.com/console/sms/whatsapp/sandbox`): set
    "When a message comes in" to `<PUBLIC_BASE_URL>/whatsapp`, method `POST`.
-6. From the CHW phone, join the sandbox (`join <code>`), then send `START F-0042`.
+6. From the CHW phone (and the nurse phone), send `join <sandbox-code>` to +1 415 523 8886,
+   then send `START F-0042`.
 
-## Alerts, summary, dashboard and DHIS2
+**Mooré audio** goes in `static/audio/mos/`: `intro`, `consent`, `choices`, `q1`…`q6`, `safety`,
+`result_green`, `result_orange`, `result_red`, `thanks`, `stop`, as `.ogg` (Opus codec, shown as
+a voice note) or `.mp3`. A missing file is skipped and only the text is sent.
 
-- **Nurse alert**: a red result (score ≥ 13 or positive safety question) sends a WhatsApp alert to
-  `NURSE_WHATSAPP_TO` before the result reaches the CHW, and is logged in the `alerts` table.
-  In the Twilio sandbox the nurse's phone must also have joined the sandbox.
-- **Case summary**: after each completed questionnaire, Claude writes a 3-sentence French summary
-  for the CHW from the structured result only (never free text, never a name). It is dropped if
-  it names a diagnosis or is too long. Without `ANTHROPIC_API_KEY` it is simply skipped.
-- **Public dashboard**: `<PUBLIC_BASE_URL>/dashboard` shows weekly anonymised totals
-  (JSON at `/api/stats`), read from the `public_stats` view only.
-- **DHIS2**: `python -m app.dhis2 --week 2026-W45` pushes the week's totals (sessions completed,
-  green, orange, red) to DHIS2 with the `dataValueSets` API. The "SuNoogo perinatal screening"
-  data set is created or updated on each run. Add `--dry-run` to validate without saving.
-- **Follow-ups**: `python -m app.followups` lists orange results whose 14-day follow-up is due.
+## DHIS2 and follow-ups
 
-Mooré audio files go in `static/audio/mos/` (`intro`, `consent`, `choices`, `q1`…`q6`, `safety`,
-`result_green`, `result_orange`, `result_red`, `thanks`, `stop`), as `.ogg` (Opus codec, shown as a
-voice note) or `.mp3`. Missing files are skipped and only the text is sent.
+```bash
+python -m app.dhis2 --week 2026-W45            # push one ISO week
+python -m app.dhis2 --week 2026-W45 --dry-run  # validate only
+python -m app.followups                        # list orange follow-ups due today
+```
+
+The DHIS2 script creates or updates the data set **SuNoogo perinatal screening** (weekly; data
+elements: sessions completed, level green, level orange, level red) and pushes the week's totals
+with the `dataValueSets` API. It was tested against the public DHIS2 2.43 demo instance
+(`play.dhis2.org/demo`).
+
+## Roadmap after the prototype
+
+Validation of thresholds and Mooré recordings with the health district, a whitelist of
+registered CHW numbers, nurse acknowledgement with second-level escalation, a registered
+WhatsApp Business sender with approved templates, and persistent session state. Details in
+[docs/SAFETY.md](docs/SAFETY.md#known-limitations-to-resolve-before-field-use).
 
 ## License
 
-Code: MIT (see `LICENSE`). Audio files: CC-BY 4.0.
+- Code: [MIT](LICENSE).
+- Audio recordings in `static/audio/`: [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/).
