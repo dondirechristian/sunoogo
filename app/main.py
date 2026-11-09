@@ -1,14 +1,20 @@
-"""FastAPI app: POST /whatsapp Twilio webhook, public /dashboard and /static files (Mooré audio).
+"""FastAPI app: WhatsApp webhooks, public /dashboard and /static files (Mooré audio).
+
+Two providers share the same conversation logic: Twilio (POST /whatsapp) and the Meta WhatsApp
+Cloud API (GET/POST /whatsapp/meta). WHATSAPP_PROVIDER selects which one sends replies.
 
 Conversation state lives in memory, keyed by the CHW's WhatsApp number, and is persisted to
 Supabase only after consent (via flow effects). A server restart drops conversations that are
 in progress; this is acceptable for the prototype.
 """
 
+import hashlib
+import hmac
 import logging
 import mimetypes
 import os
 import threading
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,12 +22,12 @@ from uuid import uuid4
 
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from twilio.request_validator import RequestValidator
 
-from app import alerts, db, messages, summary, twilio_client
+from app import alerts, db, messages, summary, whatsapp
 from app.flow import Effect, Session, State, followup_due_date, handle_message
 
 load_dotenv()
@@ -54,6 +60,8 @@ class Outcome:
 
 _conversations: dict[str, Conversation] = {}
 _lock = threading.Lock()
+# Meta retries deliveries: remember recent message ids to process each message once.
+_seen_message_ids: deque[str] = deque(maxlen=1000)
 
 
 STAT_FIELDS = (
@@ -98,16 +106,76 @@ async def whatsapp_webhook(request: Request, background: BackgroundTasks) -> Res
         raise HTTPException(status_code=403, detail="Invalid Twilio signature")
     sender = form.get("From", "")
     outcome = await run_in_threadpool(process_message, sender, form.get("Body", ""))
-    # Sent through the REST API after the webhook has answered Twilio, in this order.
+    _schedule_replies(background, sender, outcome)
+    return Response(EMPTY_TWIML, media_type="application/xml")
+
+
+@app.get("/whatsapp/meta")
+def meta_verify(request: Request) -> PlainTextResponse:
+    """Webhook verification handshake from the Meta app dashboard."""
+    params = request.query_params
+    expected = os.environ.get("META_VERIFY_TOKEN", "")
+    token = params.get("hub.verify_token", "")
+    if params.get("hub.mode") != "subscribe" or not expected or not hmac.compare_digest(
+        token, expected
+    ):
+        raise HTTPException(status_code=403, detail="Verification failed")
+    return PlainTextResponse(params.get("hub.challenge", ""))
+
+
+@app.post("/whatsapp/meta")
+async def meta_webhook(request: Request, background: BackgroundTasks) -> Response:
+    body = await request.body()
+    if not meta_signature_is_valid(body, request.headers.get("X-Hub-Signature-256", "")):
+        log.warning("Rejected webhook: bad Meta signature (check META_APP_SECRET)")
+        raise HTTPException(status_code=403, detail="Invalid Meta signature")
+    for message_id, sender, text in meta_messages(await request.json()):
+        with _lock:
+            if message_id in _seen_message_ids:
+                continue
+            _seen_message_ids.append(message_id)
+        outcome = await run_in_threadpool(process_message, sender, text)
+        _schedule_replies(background, sender, outcome)
+    return Response(status_code=200)
+
+
+def meta_signature_is_valid(body: bytes, header: str) -> bool:
+    secret = os.environ.get("META_APP_SECRET", "")
+    if not secret or not header.startswith("sha256="):
+        return False
+    expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, header.removeprefix("sha256="))
+
+
+def meta_messages(payload: dict) -> list[tuple[str, str, str]]:
+    """(message id, sender, text) for each incoming message. Status updates are skipped.
+
+    The sender is normalised to "whatsapp:+<digits>", as with Twilio, so that conversations
+    and stored CHW numbers look the same whichever provider is used. A non-text message
+    (voice note, image) is handled as an empty text, which gets the help reply.
+    """
+    found = []
+    for entry in payload.get("entry", []):
+        for change in entry.get("changes", []):
+            for message in change.get("value", {}).get("messages", []):
+                if not message.get("from"):
+                    continue
+                is_text = message.get("type") == "text"
+                text = message.get("text", {}).get("body", "") if is_text else ""
+                found.append((message.get("id", ""), f"whatsapp:+{message['from']}", text))
+    return found
+
+
+def _schedule_replies(background: BackgroundTasks, sender: str, outcome: "Outcome") -> None:
+    # Sent through the provider API after the webhook has answered, in this order.
     # Each task catches its own errors, so one failure never cancels the next ones.
     if outcome.alert:
         background.add_task(
             alerts.send_alert, outcome.alert.session_id, _phone(sender), outcome.alert.session
         )
-    background.add_task(twilio_client.send_all, sender, outcome.outgoing)
+    background.add_task(whatsapp.provider().send_all, sender, outcome.outgoing)
     if outcome.completed:
         background.add_task(send_summary, sender, outcome.completed)
-    return Response(EMPTY_TWIML, media_type="application/xml")
 
 
 def send_summary(sender: str, session: Session) -> None:
@@ -117,7 +185,7 @@ def send_summary(sender: str, session: Session) -> None:
         log.exception("Case summary failed")
         return
     if text:
-        twilio_client.send_all(sender, [messages.Outgoing(text)])
+        whatsapp.provider().send_all(sender, [messages.Outgoing(text)])
 
 
 def process_message(sender: str, text: str) -> Outcome:

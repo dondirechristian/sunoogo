@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import anthropic
 import pytest
 
-from app import alerts, summary
+from app import alerts, summary, twilio_client
 from app.flow import Session, State
 from app.scoring import evaluate
 
@@ -32,7 +32,7 @@ def test_alert_text_has_code_phone_and_level_but_no_diagnosis():
 def test_send_alert_records_sent_status(monkeypatch):
     sent, recorded = [], []
     monkeypatch.setenv("NURSE_WHATSAPP_TO", "whatsapp:+22675555555")
-    monkeypatch.setattr(alerts.twilio_client, "send_text", lambda to, body: sent.append(to))
+    monkeypatch.setattr(twilio_client, "send_text", lambda to, body: sent.append(to))
     monkeypatch.setattr(alerts.db, "insert_alert", recorded.append)
     alerts.send_alert("sid", "+22670000000", completed())
     assert sent == ["whatsapp:+22675555555"]
@@ -45,7 +45,7 @@ def test_send_alert_records_failure_and_never_raises(monkeypatch):
     def boom(to, body):
         raise RuntimeError("twilio down")
 
-    monkeypatch.setattr(alerts.twilio_client, "send_text", boom)
+    monkeypatch.setattr(twilio_client, "send_text", boom)
     monkeypatch.setattr(alerts.db, "insert_alert", recorded.append)
     alerts.send_alert("sid", "+22670000000", completed())
     assert recorded[0]["status"] == "failed"
@@ -57,7 +57,7 @@ def test_send_alert_survives_database_failure(monkeypatch):
     def db_down(row):
         raise RuntimeError("supabase down")
 
-    monkeypatch.setattr(alerts.twilio_client, "send_text", lambda to, body: sent.append(to))
+    monkeypatch.setattr(twilio_client, "send_text", lambda to, body: sent.append(to))
     monkeypatch.setattr(alerts.db, "insert_alert", db_down)
     alerts.send_alert("sid", "+22670000000", completed())
     assert len(sent) == 1

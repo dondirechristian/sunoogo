@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from twilio.request_validator import RequestValidator
 
-from app import main
+from app import main, twilio_client
 from app.messages import Outgoing
 
 TOKEN = "test-auth-token"
@@ -27,10 +27,10 @@ def env(monkeypatch):
     monkeypatch.setattr(main.db, "insert_alert", lambda row: None)
     monkeypatch.setattr(main.summary, "summarize", lambda session: None)
     monkeypatch.setattr(
-        main.twilio_client, "send_all", lambda to, outgoing: sent.append((to, outgoing))
+        twilio_client, "send_all", lambda to, outgoing: sent.append((to, outgoing))
     )
     monkeypatch.setattr(
-        main.twilio_client, "send_text", lambda to, body: sent.append((to, [Outgoing(body)]))
+        twilio_client, "send_text", lambda to, body: sent.append((to, [Outgoing(body)]))
     )
     return saved, sent
 
@@ -119,7 +119,7 @@ def test_alert_failure_does_not_block_the_result(client, env, monkeypatch):
     def broken_send_text(to, body):
         raise RuntimeError("twilio down")
 
-    monkeypatch.setattr(main.twilio_client, "send_text", broken_send_text)
+    monkeypatch.setattr(twilio_client, "send_text", broken_send_text)
     for body in ["START F-0042", "1", "5", "5", "5", "5", "5", "5", "1"]:
         post(client, body)
     assert texts(sent)[-2].startswith("Résultat du questionnaire : ROUGE")

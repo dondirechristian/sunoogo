@@ -93,9 +93,9 @@ The full protocol, failure modes and known limitations are in [docs/SAFETY.md](d
 
 ```
 WhatsApp (CHW phone)
-   │  Twilio WhatsApp
+   │  Meta WhatsApp Cloud API  or  Twilio WhatsApp
    ▼
-FastAPI  POST /whatsapp ── signature check ──► flow.py (pure state machine)
+FastAPI  POST /whatsapp/meta | /whatsapp ── signature check ──► flow.py (pure state machine)
    │                                             └─► scoring.py (fixed K6 rule)
    ├─► Supabase (Postgres): sessions, alerts, public_stats view
    ├─► alerts.py ──► WhatsApp alert to the referral nurse (red)
@@ -110,7 +110,9 @@ FastAPI  POST /whatsapp ── signature check ──► flow.py (pure state mac
 | `app/scoring.py` | K6 score, levels and safety rule — pure, fully tested |
 | `app/messages.py` | French/English texts and Mooré audio file names |
 | `app/main.py` | Webhook, dashboard, static audio |
-| `app/twilio_client.py` | Sends text and audio (audio and text are separate WhatsApp messages) |
+| `app/whatsapp.py` | Picks the WhatsApp provider (`WHATSAPP_PROVIDER=meta` or `twilio`) |
+| `app/meta_client.py` | Sends text and voice notes through the Meta WhatsApp Cloud API |
+| `app/twilio_client.py` | Sends text and audio through Twilio (audio and text are separate messages) |
 | `app/db.py` | Supabase access |
 | `app/alerts.py` | Nurse alert |
 | `app/summary.py` | LLM case summary with output checks |
@@ -118,9 +120,10 @@ FastAPI  POST /whatsapp ── signature check ──► flow.py (pure state mac
 | `app/followups.py` | Lists due 14-day follow-ups |
 | `sql/schema.sql` | Tables, constraints, row-level security, `public_stats` view |
 | `scripts/demo_session.py` | Replays a full session without a phone |
+| `scripts/convert_audio.py` | Converts Mooré recordings to WhatsApp voice notes (OGG/Opus, mono) |
 
-Stack: Python 3.11+, FastAPI, Twilio WhatsApp, Supabase (Postgres), Anthropic API, DHIS2 Web API,
-pytest.
+Stack: Python 3.11+, FastAPI, Meta WhatsApp Cloud API or Twilio, Supabase (Postgres),
+Anthropic API, DHIS2 Web API, pytest.
 
 ## Try it without a phone
 
@@ -136,13 +139,23 @@ the Supabase project configured in `.env`.
 
 ## Run the WhatsApp prototype
 
+The same conversation logic runs on two providers. `WHATSAPP_PROVIDER` chooses which one sends
+the replies:
+
+- **`meta`: Meta WhatsApp Cloud API** (official, free test number, up to 5 registered
+  recipients). This is what the prototype uses.
+- **`twilio`: Twilio WhatsApp sandbox** (needs an upgraded Twilio account).
+
 1. **Database:** create a Supabase project, paste `sql/schema.sql` into the SQL editor and run it.
 2. **Configuration:** copy `.env.example` to `.env` and fill it in (never commit `.env`):
 
    | Variable | Purpose |
    |---|---|
-   | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` | Twilio account |
-   | `TWILIO_WHATSAPP_FROM` | Sandbox sender, `whatsapp:+14155238886` |
+   | `WHATSAPP_PROVIDER` | `meta` or `twilio` |
+   | `META_ACCESS_TOKEN`, `META_PHONE_NUMBER_ID` | Meta app, *WhatsApp > API Setup* |
+   | `META_APP_SECRET` | Meta app, *App settings > Basic* (checks webhook signatures) |
+   | `META_VERIFY_TOKEN` | Any string, repeated in the Meta webhook settings |
+   | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM` | Twilio account and sandbox sender |
    | `PUBLIC_BASE_URL` | Public HTTPS URL of the server (ngrok in development) |
    | `NURSE_WHATSAPP_TO` | Referral nurse, `whatsapp:+226…` |
    | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Database (server-side key) |
@@ -152,15 +165,30 @@ the Supabase project configured in `.env`.
 
 3. **Server:** `.venv/Scripts/python -m uvicorn app.main:app --port 8000`
 4. **Tunnel:** `ngrok http 8000`, then put the HTTPS URL in `PUBLIC_BASE_URL` and restart the
-   server (Twilio signatures are checked against this URL).
-5. **Twilio sandbox** (legacy console, `twilio.com/console/sms/whatsapp/sandbox`): set
-   "When a message comes in" to `<PUBLIC_BASE_URL>/whatsapp`, method `POST`.
+   server.
+
+**With Meta** (developers.facebook.com, app with the *Connect with customers through WhatsApp*
+use case):
+
+5. *WhatsApp > API Setup*: note the test number's **phone number ID**, generate an access token,
+   and add the CHW and nurse phones as recipients.
+6. *WhatsApp > Configuration > Webhook*: callback URL `<PUBLIC_BASE_URL>/whatsapp/meta`, verify
+   token = `META_VERIFY_TOKEN`, then subscribe to the **messages** field.
+7. From the CHW phone, send `START F-0042` to the test number. The nurse phone should send any
+   message once first: outside a 24-hour window, Meta only delivers approved templates.
+
+**With Twilio:**
+
+5. Sandbox settings (legacy console, `twilio.com/console/sms/whatsapp/sandbox`): set "When a
+   message comes in" to `<PUBLIC_BASE_URL>/whatsapp`, method `POST`.
 6. From the CHW phone (and the nurse phone), send `join <sandbox-code>` to +1 415 523 8886,
    then send `START F-0042`.
 
 **Mooré audio** goes in `static/audio/mos/`: `intro`, `consent`, `choices`, `q1`…`q6`, `safety`,
 `result_green`, `result_orange`, `result_red`, `thanks`, `stop`, as `.ogg` (Opus codec, shown as
 a voice note) or `.mp3`. A missing file is skipped and only the text is sent.
+`python scripts/convert_audio.py <folder>` converts recordings named after these keys (any
+format) to mono OGG/Opus voice notes.
 
 ## DHIS2 and follow-ups
 
@@ -179,7 +207,9 @@ with the `dataValueSets` API. It was tested against the public DHIS2 2.43 demo i
 
 Validation of thresholds and Mooré recordings with the health district, a whitelist of
 registered CHW numbers, nurse acknowledgement with second-level escalation, a registered
-WhatsApp Business sender with approved templates, and persistent session state. Details in
+WhatsApp Business sender with approved templates, persistent session state, and integration
+with [RapidPro](https://rapidpro.io), the open-source messaging platform UNICEF uses for
+U-Report, to scale across districts and channels (WhatsApp, SMS). Details in
 [docs/SAFETY.md](docs/SAFETY.md#known-limitations-to-resolve-before-field-use).
 
 ## License

@@ -15,7 +15,7 @@ failure modes, and what must be validated before any field use.
 | The score is computed by a fixed rule, never by an LLM | `app/scoring.py` | Unit tests on every score 0–24 and every threshold |
 | A positive safety question is always **red**, whatever the score | `app/scoring.py` (`risk_level`) | Tested for all 25 possible scores |
 | Red triggers an immediate alert to the referral nurse, sent **before** the result reaches the CHW | `app/main.py`, `app/alerts.py` | Webhook test checks the order |
-| The alert is sent even if the database is down, and recorded as `sent` or `failed` | `app/alerts.py` | Tests with Twilio or Supabase failing |
+| The alert is sent even if the database is down, and recorded as `sent` or `failed` | `app/alerts.py` | Tests with the WhatsApp provider or Supabase failing |
 | Messages never name a diagnosis; they speak of a "questionnaire result" | `app/messages.py` | Test scans every text in every language |
 | Nothing is stored before consent; a refusal stores nothing | `app/flow.py`, `sql/schema.sql` | Flow tests + database `CHECK (consent)` |
 | No woman's name is stored: only a code `F-0000` typed by the CHW | `app/flow.py`, `sql/schema.sql` | Strict format rejects free text (`START Awa`); database `CHECK` on the format |
@@ -67,7 +67,7 @@ sent after the fixed result message.
 | Failure | Effect | Mitigation |
 |---|---|---|
 | Supabase unavailable | Session not saved | Conversation and alert continue; error logged |
-| Twilio cannot deliver the nurse alert | Nurse not informed | Alert recorded as `failed`; the CHW still gets the referral instruction |
+| WhatsApp provider cannot deliver the nurse alert | Nurse not informed | Alert recorded as `failed`; the CHW still gets the referral instruction |
 | LLM unavailable or output rejected | No summary | The fixed result message is already sent |
 | Server restart during a session | The session in progress is lost | The CHW starts again with `START <code>` |
 | CHW sends a wrong answer | — | The choices are explained again; the question is repeated |
@@ -84,9 +84,10 @@ This is a prototype. Before any use with real women:
    start a session. Production needs a whitelist of CHW numbers.
 4. **Nurse acknowledgement and second-level escalation.** The nurse does not yet confirm
    receipt; an unacknowledged red alert should escalate to a second contact after a set delay.
-5. **WhatsApp Business sender and templates.** The Twilio sandbox only delivers to numbers that
-   joined it, and only within 24 hours of their last message. A production alert to the nurse
-   needs an approved message template on a registered WhatsApp Business sender.
+5. **WhatsApp Business sender and templates.** The prototype runs on a Meta Cloud API test
+   number (or the Twilio sandbox), which only delivers to a few registered numbers, and free-form
+   messages only within 24 hours of the recipient's last message. A production alert to the
+   nurse needs an approved message template on a registered WhatsApp Business sender.
 6. **Local emergency guidance:** add the local emergency contacts and a clear "immediate danger"
    protocol agreed with the health district.
 7. **Data protection:** data retention period, access control to the Supabase project, and a

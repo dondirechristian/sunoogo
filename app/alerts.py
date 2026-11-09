@@ -7,7 +7,7 @@ It carries the woman's code and the CHW's number only: no name, no diagnosis.
 import logging
 import os
 
-from app import db, twilio_client
+from app import db, whatsapp
 from app.flow import Session
 
 log = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ def send_alert(session_id: str, chw_phone: str, session: Session) -> None:
     nurse = os.environ.get("NURSE_WHATSAPP_TO", "")
     status = "sent"
     try:
-        twilio_client.send_text(nurse, alert_text(session, chw_phone))
+        whatsapp.provider().send_text(nurse, alert_text(session, chw_phone))
     except Exception:
         status = "failed"
         log.exception("Nurse alert FAILED for session %s", session_id)
