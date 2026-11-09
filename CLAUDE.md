@@ -3,7 +3,7 @@
 ## En une phrase
 Assistant vocal WhatsApp en mooré qui aide les agents de santé communautaires à dépister la dépression périnatale (échelle K6), alerte l'infirmière référente pour les cas à risque, et envoie des indicateurs anonymisés vers DHIS2.
 
-Projet candidat à UNICEF Femtech Ventures (dépôt le 9 novembre 2026). Le prototype doit marcher de bout en bout sur un vrai téléphone le 5 novembre au soir.
+Projet candidat à UNICEF Femtech Ventures (clôture le mercredi 11 novembre 2026 à 22 h 59, heure de Ouagadougou). Le prototype doit marcher de bout en bout sur un vrai téléphone, avec une démo réelle filmée.
 
 ## Règles non négociables
 - **Le score n'est JAMAIS calculé par un LLM.** Règle fixe en Python, testée unitairement.
