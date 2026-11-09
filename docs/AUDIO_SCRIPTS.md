@@ -149,15 +149,15 @@ neutre et ne pas supposer que des questions ont été posées.*
 
 | Fichier | Traduit | Retraduit | Validé infirmière | Testé femmes | Enregistré |
 |---|---|---|---|---|---|
-| intro | ☐ | ☐ | ☐ | ☐ | ☐ |
-| consent | ☐ | ☐ | ☐ | ☐ | ☐ |
+| intro | ☐ | ☐ | ☐ | ☐ | ☑ |
+| consent | ☐ | ☐ | ☐ | ☐ | ☑ |
 | choices | ☐ | ☐ | ☐ | ☐ | ☐ |
-| q1 | ☐ | ☐ | ☐ | ☐ | ☐ |
-| q2 | ☐ | ☐ | ☐ | ☐ | ☐ |
-| q3 | ☐ | ☐ | ☐ | ☐ | ☐ |
-| q4 | ☐ | ☐ | ☐ | ☐ | ☐ |
-| q5 | ☐ | ☐ | ☐ | ☐ | ☐ |
-| q6 | ☐ | ☐ | ☐ | ☐ | ☐ |
+| q1 | ☐ | ☐ | ☐ | ☐ | ☑ |
+| q2 | ☐ | ☐ | ☐ | ☐ | ☑ |
+| q3 | ☐ | ☐ | ☐ | ☐ | ☑ |
+| q4 | ☐ | ☐ | ☐ | ☐ | ☑ |
+| q5 | ☐ | ☐ | ☐ | ☐ | ☑ |
+| q6 | ☐ | ☐ | ☐ | ☐ | ☑ |
 | safety | ☐ | ☐ | ☐ | ☐ | ☐ |
 | result_green | ☐ | ☐ | ☐ | — | ☐ |
 | result_orange | ☐ | ☐ | ☐ | — | ☐ |
