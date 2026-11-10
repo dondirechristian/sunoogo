@@ -161,6 +161,6 @@ neutre et ne pas supposer que des questions ont été posées.*
 | safety | ☐ | ☐ | ☐ | ☐ | ☑ |
 | result_green | ☐ | ☐ | ☐ | — | ☑ |
 | result_orange | ☐ | ☐ | ☐ | — | ☑ |
-| result_red | ☐ | ☐ | ☐ | — | ☐ |
+| result_red | ☐ | ☐ | ☐ | — | ☑ |
 | thanks | ☐ | ☐ | ☐ | — | ☑ |
 | stop | ☐ | ☐ | ☐ | — | ☑ |
