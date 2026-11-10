@@ -7,6 +7,7 @@ Docs: developers.facebook.com/documentation/business-messaging/whatsapp/messages
 
 import logging
 import os
+import time
 
 import httpx
 
@@ -16,6 +17,8 @@ log = logging.getLogger(__name__)
 
 DEFAULT_GRAPH_VERSION = "v23.0"
 TIMEOUT_SECONDS = 15
+# Time for WhatsApp to fetch a voice note before the next message is sent.
+AUDIO_GAP_SECONDS = 2.0
 
 
 def recipient(to: str) -> str:
@@ -62,11 +65,18 @@ def send_audio(to: str, media_url: str) -> None:
 
 
 def send_all(to: str, outgoing: list[Outgoing]) -> None:
-    """Send messages in order. A failed message is logged and does not stop the next ones."""
-    for message in outgoing:
+    """Send messages in order. A failed message is logged and does not stop the next ones.
+
+    WhatsApp delivers a text before a voice note sent just ahead of it (the voice note is
+    fetched first), so each text goes before its audio, and a short pause after the audio
+    keeps it ahead of the next message.
+    """
+    for index, message in enumerate(outgoing):
+        _try_send(send_text, to, message.text)
         if message.audio_url:
             _try_send(send_audio, to, message.audio_url)
-        _try_send(send_text, to, message.text)
+            if index < len(outgoing) - 1:
+                time.sleep(AUDIO_GAP_SECONDS)
 
 
 def _try_send(send, to: str, content: str) -> None:

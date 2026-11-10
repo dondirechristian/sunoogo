@@ -190,8 +190,8 @@ def test_audio_payload_voice_note_for_ogg(url, voice):
     assert data["audio"] == {"link": url, "voice": voice}
 
 
-def test_send_all_sends_audio_then_text_and_survives_errors(monkeypatch):
-    posted = []
+def test_send_all_sends_text_then_audio_and_survives_errors(monkeypatch):
+    posted, pauses = [], []
 
     def fake_post(data):
         posted.append(data["type"])
@@ -199,5 +199,15 @@ def test_send_all_sends_audio_then_text_and_survives_errors(monkeypatch):
             raise RuntimeError("Meta API 400")
 
     monkeypatch.setattr(meta_client, "_post", fake_post)
+    monkeypatch.setattr(meta_client.time, "sleep", pauses.append)
     meta_client.send_all(CHW, [Outgoing("Question 1/6", f"{AUDIO}/q1.ogg"), Outgoing("Merci")])
-    assert posted == ["audio", "text", "text"]
+    assert posted == ["text", "audio", "text"]
+    assert pauses == [meta_client.AUDIO_GAP_SECONDS]
+
+
+def test_send_all_no_pause_after_last_audio(monkeypatch):
+    pauses = []
+    monkeypatch.setattr(meta_client, "_post", lambda data: None)
+    monkeypatch.setattr(meta_client.time, "sleep", pauses.append)
+    meta_client.send_all(CHW, [Outgoing("Merci", f"{AUDIO}/thanks.ogg")])
+    assert pauses == []

@@ -157,7 +157,10 @@ def meta_messages(payload: dict) -> list[tuple[str, str, str]]:
     found = []
     for entry in payload.get("entry", []):
         for change in entry.get("changes", []):
-            for message in change.get("value", {}).get("messages", []):
+            value = change.get("value", {})
+            # Field and keys only: never log message content.
+            log.info("Meta webhook: field=%s keys=%s", change.get("field"), sorted(value))
+            for message in value.get("messages", []):
                 if not message.get("from"):
                     continue
                 is_text = message.get("type") == "text"
