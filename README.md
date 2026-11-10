@@ -215,5 +215,5 @@ U-Report, to scale across districts and channels (WhatsApp, SMS). Details in
 ## License
 
 - Code: [MIT](LICENSE).
-- Audio recordings in `static/audio/`: [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+- Audio recordings in `static/audio/`: [CC-BY 4.0](static/audio/LICENSE.md).
   Mooré voice: Jeanne d'Arc Rayeswendé, Mooré language expert.
