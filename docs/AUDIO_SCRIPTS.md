@@ -151,16 +151,16 @@ neutre et ne pas supposer que des questions ont été posées.*
 |---|---|---|---|---|---|
 | intro | ☐ | ☐ | ☐ | ☐ | ☑ |
 | consent | ☐ | ☐ | ☐ | ☐ | ☑ |
-| choices | ☐ | ☐ | ☐ | ☐ | ☐ |
+| choices | ☐ | ☐ | ☐ | ☐ | ☑ |
 | q1 | ☐ | ☐ | ☐ | ☐ | ☑ |
 | q2 | ☐ | ☐ | ☐ | ☐ | ☑ |
 | q3 | ☐ | ☐ | ☐ | ☐ | ☑ |
 | q4 | ☐ | ☐ | ☐ | ☐ | ☑ |
 | q5 | ☐ | ☐ | ☐ | ☐ | ☑ |
 | q6 | ☐ | ☐ | ☐ | ☐ | ☑ |
-| safety | ☐ | ☐ | ☐ | ☐ | ☐ |
-| result_green | ☐ | ☐ | ☐ | — | ☐ |
-| result_orange | ☐ | ☐ | ☐ | — | ☐ |
+| safety | ☐ | ☐ | ☐ | ☐ | ☑ |
+| result_green | ☐ | ☐ | ☐ | — | ☑ |
+| result_orange | ☐ | ☐ | ☐ | — | ☑ |
 | result_red | ☐ | ☐ | ☐ | — | ☐ |
-| thanks | ☐ | ☐ | ☐ | — | ☐ |
-| stop | ☐ | ☐ | ☐ | — | ☐ |
+| thanks | ☐ | ☐ | ☐ | — | ☑ |
+| stop | ☐ | ☐ | ☐ | — | ☑ |
