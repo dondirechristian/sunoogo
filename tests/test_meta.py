@@ -205,6 +205,35 @@ def test_send_all_sends_text_then_audio_and_survives_errors(monkeypatch):
     assert pauses == [meta_client.AUDIO_GAP_SECONDS]
 
 
+def test_send_all_retries_once_after_pair_rate_limit(monkeypatch):
+    posted, pauses = [], []
+
+    def fake_post(data):
+        posted.append(data["type"])
+        if len(posted) == 1:
+            raise meta_client.MetaApiError(400, "rate", meta_client.PAIR_RATE_LIMIT_CODE)
+
+    monkeypatch.setattr(meta_client, "_post", fake_post)
+    monkeypatch.setattr(meta_client.time, "sleep", pauses.append)
+    meta_client.send_all(CHW, [Outgoing("Merci")])
+    assert posted == ["text", "text"]
+    assert pauses == [meta_client.RATE_LIMIT_WAIT_SECONDS]
+
+
+def test_send_all_does_not_retry_other_errors(monkeypatch):
+    posted, pauses = [], []
+
+    def fake_post(data):
+        posted.append(data["type"])
+        raise meta_client.MetaApiError(400, "not allowed", 131030)
+
+    monkeypatch.setattr(meta_client, "_post", fake_post)
+    monkeypatch.setattr(meta_client.time, "sleep", pauses.append)
+    meta_client.send_all(CHW, [Outgoing("Merci")])
+    assert posted == ["text"]
+    assert pauses == []
+
+
 def test_send_all_no_pause_after_last_audio(monkeypatch):
     pauses = []
     monkeypatch.setattr(meta_client, "_post", lambda data: None)

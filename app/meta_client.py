@@ -19,6 +19,15 @@ DEFAULT_GRAPH_VERSION = "v23.0"
 TIMEOUT_SECONDS = 15
 # Time for WhatsApp to fetch a voice note before the next message is sent.
 AUDIO_GAP_SECONDS = 2.0
+# Error 131056: too many messages to the same recipient in a short time. Wait, then retry once.
+PAIR_RATE_LIMIT_CODE = 131056
+RATE_LIMIT_WAIT_SECONDS = 6.0
+
+
+class MetaApiError(RuntimeError):
+    def __init__(self, status: int, body: str, code: int | None):
+        super().__init__(f"Meta API {status}: {body}")
+        self.code = code
 
 
 def recipient(to: str) -> str:
@@ -53,7 +62,14 @@ def _post(payload: dict) -> None:
     response = httpx.post(url, json=payload, headers=headers, timeout=TIMEOUT_SECONDS)
     if response.is_error:
         # The error body says why (expired token, recipient not in the test list, ...).
-        raise RuntimeError(f"Meta API {response.status_code}: {response.text}")
+        raise MetaApiError(response.status_code, response.text, _error_code(response))
+
+
+def _error_code(response: httpx.Response) -> int | None:
+    try:
+        return response.json()["error"]["code"]
+    except (ValueError, KeyError, TypeError):
+        return None
 
 
 def send_text(to: str, body: str) -> None:
@@ -82,5 +98,15 @@ def send_all(to: str, outgoing: list[Outgoing]) -> None:
 def _try_send(send, to: str, content: str) -> None:
     try:
         send(to, content)
+    except MetaApiError as error:
+        if error.code != PAIR_RATE_LIMIT_CODE:
+            log.exception("Meta send failed")
+            return
+        log.warning("Meta pair rate limit hit: retrying in %s s", RATE_LIMIT_WAIT_SECONDS)
+        time.sleep(RATE_LIMIT_WAIT_SECONDS)
+        try:
+            send(to, content)
+        except Exception:
+            log.exception("Meta send failed after retry")
     except Exception:
         log.exception("Meta send failed")

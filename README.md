@@ -130,7 +130,7 @@ Anthropic API, DHIS2 Web API, pytest.
 ```bash
 python -m venv .venv
 .venv/Scripts/python -m pip install -r requirements.txt -r requirements-dev.txt   # Windows
-.venv/Scripts/python -m pytest                                                     # 258 tests
+.venv/Scripts/python -m pytest                                                     # 260 tests
 .venv/Scripts/python scripts/demo_session.py --scenario red-safety --no-db
 ```
 
