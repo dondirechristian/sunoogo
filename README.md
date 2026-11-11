@@ -12,6 +12,10 @@ tested rule computes the result. High-risk results reach the nurse immediately.
 > Status: working prototype (UNICEF Femtech Ventures application, November 2026).
 > Not yet validated for field use — see [docs/SAFETY.md](docs/SAFETY.md).
 
+**Demo video (2 min, English subtitles):** [youtu.be/Es4IZWPIsZ0](https://youtu.be/Es4IZWPIsZ0):
+the team, a live session on a real phone with Mooré voice notes, the nurse receiving the alert,
+and the public dashboard.
+
 ## How a session works
 
 ```
