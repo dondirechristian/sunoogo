@@ -14,7 +14,7 @@ tested rule computes the result. High-risk results reach the nurse immediately.
 
 **Demo video (2 min, English subtitles):** [youtu.be/Es4IZWPIsZ0](https://youtu.be/Es4IZWPIsZ0):
 the team, a live session on a real phone with Mooré voice notes, the nurse receiving the alert,
-and the public dashboard.
+and the public dashboard. Project page (French and English): [sotechdi.com/sunoogo](https://sotechdi.com/sunoogo/).
 
 ## How a session works
 
